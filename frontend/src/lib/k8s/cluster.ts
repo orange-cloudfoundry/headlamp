@@ -343,11 +343,13 @@ export function makeKubeObject<T extends KubeObjectInterface | KubeEvent>(
   class KubeObject {
     static apiEndpoint: ReturnType<typeof apiFactoryWithNamespace | typeof apiFactory>;
     jsonData: T | null = null;
+    readOnlyFields: string[];
     private readonly _clusterName: string;
 
-    constructor(json: T) {
+    constructor(json: T, readOnlyFields: string[] = []) {
       this.jsonData = json;
       this._clusterName = getCluster() || '';
+      this.readOnlyFields = readOnlyFields;
     }
 
     static get className(): string {
@@ -428,6 +430,30 @@ export function makeKubeObject<T extends KubeObjectInterface | KubeEvent>(
 
     static get isNamespaced() {
       return this.apiEndpoint.isNamespaced;
+    }
+    get getReadOnlyFields() {
+      return this.readOnlyFields;
+    }
+    getEditableObject() {
+      const code = this.jsonData ? JSON.stringify(this.jsonData) : '{}';
+      const fieldsToRemove = this.readOnlyFields;
+
+      console.log('code: ', JSON.stringify(code));
+      console.log('fieldsToRemove: ', fieldsToRemove);
+      const parsedCode = JSON.parse(code);
+
+      // Recursively remove fields
+      (function recurse(currentField: any) {
+        for (const key in currentField) {
+          if (fieldsToRemove.includes(key)) {
+            delete currentField[key];
+          } else if (typeof currentField[key] === 'object' && currentField[key] !== null) {
+            recurse(currentField[key]);
+          }
+        }
+      })(parsedCode);
+
+      return parsedCode;
     }
 
     // @todo: apiList has 'any' return type.

@@ -31,9 +31,6 @@ if (process.env.NODE_ENV === 'test') {
   monaco = require('monaco-editor');
 }
 
-// Remove status and managedFields from the object
-const fieldsToRemove = ['status', 'managedFields'];
-
 type KubeObjectIsh = Partial<KubeObjectInterface>;
 
 export interface EditorDialogProps extends DialogProps {
@@ -66,21 +63,7 @@ export default function EditorDialog(props: EditorDialogProps) {
 
   const originalCodeRef = React.useRef({ code: '', format: item ? 'yaml' : '' });
 
-  const initialCode = item
-    ? originalCodeRef.current.format === 'json'
-      ? JSON.stringify(item)
-      : yaml.dump(item)
-    : '';
-  const cleanedInitialCode = removeFields(
-    { code: initialCode, format: originalCodeRef.current.format },
-    fieldsToRemove
-  );
-  // Initialize state with cleanedInitialCode to avoid unnecessary fields.
-  const [code, setCode] = React.useState({
-    code: cleanedInitialCode,
-    format: originalCodeRef.current.format,
-  });
-
+  const [code, setCode] = React.useState(originalCodeRef.current);
   const codeRef = React.useRef(code);
   const lastCodeCheckHandler = React.useRef(0);
   const previousVersionRef = React.useRef(item?.metadata?.resourceVersion || '');
@@ -99,7 +82,6 @@ export default function EditorDialog(props: EditorDialogProps) {
     localStorage.setItem('useSimpleEditor', JSON.stringify(data));
     setUseSimpleEditorState(data);
   }
-
   // Update the code when the item changes, but only if the code hasn't been touched.
   React.useEffect(() => {
     if (!item || Object.keys(item || {}).length === 0) {
@@ -265,36 +247,6 @@ export default function EditorDialog(props: EditorDialogProps) {
       return;
     }
     onSave!(obj);
-  }
-  function removeFields(code: { code: string; format: string }, fieldsToRemove: string[]): string {
-    // Check format
-    let parsedCode: any;
-    if (looksLikeJson(code.code) === true) {
-      parsedCode = JSON.parse(code.code);
-    } else {
-      parsedCode = yaml.load(code.code);
-    }
-
-    // Recursively remove fields
-    (function recurse(currentField: any) {
-      for (const key in currentField) {
-        if (fieldsToRemove.includes(key)) {
-          delete currentField[key];
-        } else if (typeof currentField[key] === 'object' && currentField[key] !== null) {
-          recurse(currentField[key]);
-        }
-      }
-    })(parsedCode);
-
-    // Convert the object back into a string
-    let stringifiedCode: string;
-    if (code.code.trim().startsWith('{')) {
-      stringifiedCode = JSON.stringify(parsedCode);
-    } else {
-      stringifiedCode = yaml.dump(parsedCode);
-    }
-
-    return stringifiedCode;
   }
 
   function makeEditor() {
