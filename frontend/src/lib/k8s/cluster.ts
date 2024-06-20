@@ -1,4 +1,5 @@
 import { OpPatch } from 'json-patch';
+import { JSONPath } from 'jsonpath-plus';
 import { cloneDeep, unset } from 'lodash';
 import React from 'react';
 import helpers from '../../helpers';
@@ -329,6 +330,18 @@ export interface AuthRequestResourceAttrs {
   group?: string;
   verb?: string;
 }
+type JsonPath<T> = keyof T extends never
+  ? never
+  : {
+      [K in keyof T]: T[K] extends never
+        ? never
+        : T[K] extends Record<string | number | symbol, unknown>
+        ? K extends string
+          ? `${K}.${JsonPath<T[K]>}` | K
+          : never
+        : K;
+    }[keyof T] &
+      string;
 
 // @todo: uses of makeKubeObject somehow end up in an 'any' type.
 
@@ -343,13 +356,12 @@ export function makeKubeObject<T extends KubeObjectInterface | KubeEvent>(
   class KubeObject {
     static apiEndpoint: ReturnType<typeof apiFactoryWithNamespace | typeof apiFactory>;
     jsonData: T | null = null;
-    readOnlyFields: string[];
+    private static _readOnlyFields: JsonPath<T>[];
     private readonly _clusterName: string;
 
-    constructor(json: T, readOnlyFields: string[] = []) {
+    constructor(json: T) {
       this.jsonData = json;
       this._clusterName = getCluster() || '';
-      this.readOnlyFields = readOnlyFields;
     }
 
     static get className(): string {
@@ -431,19 +443,14 @@ export function makeKubeObject<T extends KubeObjectInterface | KubeEvent>(
     static get isNamespaced() {
       return this.apiEndpoint.isNamespaced;
     }
-    get getReadOnlyFields() {
-      return this.readOnlyFields;
+    static get readOnlyFields(): JsonPath<T>[] {
+      return this._readOnlyFields;
     }
     getEditableObject() {
-      const code = this.jsonData ? JSON.stringify(this.jsonData) : '{}';
-      const fieldsToRemove = this.readOnlyFields;
-
-      console.log('code: ', JSON.stringify(code));
-      console.log('fieldsToRemove: ', fieldsToRemove);
-      const parsedCode = JSON.parse(code);
-
+      const fieldsToRemove = this._class().readOnlyFields;
+      const code = this.jsonData ? cloneDeep(this.jsonData) : '{}';
       // Recursively remove fields
-      (function recurse(currentField: any) {
+      /*      (function recurse(currentField: any) {
         for (const key in currentField) {
           if (fieldsToRemove.includes(key)) {
             delete currentField[key];
@@ -451,9 +458,22 @@ export function makeKubeObject<T extends KubeObjectInterface | KubeEvent>(
             recurse(currentField[key]);
           }
         }
-      })(parsedCode);
+      })(code);*/
 
-      return parsedCode;
+      fieldsToRemove.forEach((path: JsonPath<T>) => {
+        JSONPath({
+          path,
+          json: code,
+          callback: (result, type, fullPayload) => {
+            if (fullPayload.parent && fullPayload.parentProperty) {
+              delete fullPayload.parent[fullPayload.parentProperty];
+            }
+          },
+          resultType: 'all',
+        });
+      });
+
+      return code;
     }
 
     // @todo: apiList has 'any' return type.
